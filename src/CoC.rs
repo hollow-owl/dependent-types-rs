@@ -30,6 +30,27 @@ pub enum Term {
     Bx,
 }
 
+impl Term {
+    
+    pub fn lam<F>(f: F) -> Self
+    where F: 'static + FnClone {
+        Lam(Box::new(f))
+    }
+
+    pub fn pi<F>(a: Term, f: F) -> Self
+    where F: 'static + FnClone {
+        Pi(Box::new(a), Box::new(f))
+    }
+
+    pub fn appl(m: Term, n: Term) -> Self {
+        Appl(Box::new(m), Box::new(n))
+    }
+
+    pub fn ann(m: Term, a: Term) -> Self {
+        Ann(Box::new(m), Box::new(a))
+    }
+}
+
 impl fmt::Debug for Term {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", print(0,self))
@@ -150,6 +171,9 @@ pub fn assert_infer(ctx: Vec<Term>, t: Term, expected_ty: Term) {
     assert!(equate(lvl, (infered_ty, expected_ty)))
 }
 
+pub fn assert_beta_eq(m: Term, n: Term) {
+    assert!(equate(0, (eval(m), eval(n))));
+}
 #[cfg(test)]
 mod tests {
     use super::*;
