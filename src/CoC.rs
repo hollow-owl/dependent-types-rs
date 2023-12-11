@@ -1,4 +1,5 @@
 use core::fmt;
+use std::collections::VecDeque;
 
 use dyn_clone::DynClone;
 
@@ -36,7 +37,6 @@ impl fmt::Debug for Term {
 }
 pub fn unfurl(lvl: usize, f: &Box<dyn FnClone>) -> Term {
     let out = f.call(FreeVar(lvl));
-    // dbg!(&out);
     out
 }
 
@@ -57,14 +57,6 @@ pub fn print(lvl: usize, f: &Term) -> String {
     }
 }
 
-    // match f {
-    //     Lam(f) => ,
-    //     Pi(a, f) => , 
-    //     Appl(m, n) => ,
-    //     Ann(m, a) => ,
-    //     FreeVar(x) => ,
-    //     Star => ,
-    // }
 pub fn eval(term: Term) -> Term {
     match term {
         Lam(f) => Lam(Box::new(move |n| {eval(f.call(n))})),
@@ -95,13 +87,12 @@ pub fn panic(lvl: usize, t: &Term, fmt: String) -> ! {
     panic!("{}: {}", fmt, print(lvl, t));
 }
 
-pub fn infer_ty(lvl: usize, ctx: &Vec<Term>, term: &Term) -> Term {
-    dbg!(term);
+pub fn infer_ty(lvl: usize, ctx: &VecDeque<Term>, term: &Term) -> Term {
     match term {
         Pi(a,f) => {
             let _s1 = infer_sort(lvl, ctx, a);
-            let mut new_ctx = ctx.to_vec();
-            new_ctx.push(eval(*a.clone()));
+            let mut new_ctx = ctx.to_owned();
+            new_ctx.push_front(eval(*a.clone()));
             let s2 = infer_sort(lvl+1, &new_ctx, &unfurl(lvl, f));
             s2
         },
@@ -123,8 +114,7 @@ pub fn infer_ty(lvl: usize, ctx: &Vec<Term>, term: &Term) -> Term {
     }
 }
 
-pub fn infer_sort(lvl: usize, ctx: &Vec<Term>, a: &Term) -> Term {
-    dbg!(a);
+pub fn infer_sort(lvl: usize, ctx: &VecDeque<Term>, a: &Term) -> Term {
     let b = infer_ty(lvl, ctx, a);
     match b {
         Bx => Bx,
@@ -133,12 +123,11 @@ pub fn infer_sort(lvl: usize, ctx: &Vec<Term>, a: &Term) -> Term {
     }
 }
 
-pub fn check_ty(lvl: usize, ctx: &Vec<Term>, t: &Term, ty: &Term) -> Term {
-    dbg!(t,ty);
+pub fn check_ty(lvl: usize, ctx: &VecDeque<Term>, t: &Term, ty: &Term) -> Term {
     match (t,ty) {
         (Lam(f), Pi(a,g)) => {
-            let mut new_ctx = ctx.to_vec();
-            new_ctx.push(*a.clone());
+            let mut new_ctx = ctx.to_owned();
+            new_ctx.push_front(*a.clone());
             let (x,y) = unfurl2(lvl, (f,g));
             let _ = check_ty(lvl+1, &new_ctx, &x,&y);
             Pi(a.clone(),g.clone())
@@ -152,5 +141,90 @@ pub fn check_ty(lvl: usize, ctx: &Vec<Term>, t: &Term, ty: &Term) -> Term {
                 panic(lvl, t, format!("Watn type {}, got {}", print(lvl,ty), print(lvl,&got_ty)))
             }
         }
+    }
+}
+
+pub fn assert_infer(ctx: Vec<Term>, t: Term, expected_ty: Term) {
+    let lvl = ctx.len();
+    let infered_ty = infer_ty(lvl, &ctx.into(), &t);
+    assert!(equate(lvl, (infered_ty, expected_ty)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_print() {
+        assert_eq!("42", format!("{:?}", FreeVar(42)));
+        assert_eq!("*", format!("{:?}", Star));
+        assert_eq!("☐", format!("{:?}", Bx));
+
+        assert_eq!("(λ 3)", print(3, &Lam(Box::new(move |x| x))));
+        assert_eq!("(λ (3 42))", print(3, &Lam(Box::new(move |x| Appl(Box::new(x), Box::new(FreeVar(42)))))));
+
+
+    }
+
+    #[test]
+    fn test_infer_var() {
+        assert_infer(vec![Star], FreeVar(0), Star);
+        assert_infer(vec![Bx, Star], FreeVar(0), Star);
+        assert_infer(vec![Bx,Bx, Star], FreeVar(0), Star);
+        assert_infer(vec![Star, Bx], FreeVar(1), Star);
+        assert_infer(vec![Bx, Star, Bx], FreeVar(1), Star);
+        assert_infer(vec![Bx, Star, Bx, Bx], FreeVar(2), Star);
+        assert_infer(vec![Star, Bx, Bx], FreeVar(2), Star);
+    }
+
+    #[test]
+    fn test_infer_star_box() {
+        assert_infer(vec![], Star, Bx);
+        assert_infer(vec![Bx, Bx, Bx], Star, Bx);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_infer_box() {
+        assert_infer(vec![], Bx, Bx);
+    }
+
+    #[test]
+    fn test_infer_pi() {
+        // term dep on term
+        assert_infer(vec![
+            Pi(Box::new(FreeVar(0)), Box::new(|_| Star)),
+            Star], 
+            Pi(Box::new(FreeVar(0)), Box::new(move |x| Appl(Box::new(FreeVar(1)),Box::new(x)))),
+            Star);
+        // term dep on type
+        assert_infer(vec![Pi(Box::new(Star), Box::new(|_| Star))], 
+            Pi(Box::new(Star), Box::new(move |x| Appl(Box::new(FreeVar(0)),Box::new(x)))),
+            Star);
+        // type dep on term
+        assert_infer(vec![
+            Pi(Box::new(FreeVar(0)), Box::new(|_| Bx)),
+            Star], 
+            Pi(Box::new(FreeVar(0)), Box::new(move |x| Appl(Box::new(FreeVar(1)),Box::new(x)))),
+            Bx);
+        // type dep on type
+        assert_infer(vec![ Pi(Box::new(Star), Box::new(|_| Bx)) ], 
+            Pi(Box::new(Star), Box::new(move |x| Appl(Box::new(FreeVar(0)),Box::new(x)))),
+            Bx);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_infer_pi_fail() {
+        assert_infer(vec![ FreeVar(0), Star],
+            Pi(Box::new(FreeVar(1)), Box::new(move |_| Star)),
+            Bx);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_infer_pi_fail2() {
+        assert_infer(vec![ FreeVar(0), Star],
+            Pi(Box::new(Star), Box::new(move |_| FreeVar(1))),
+            Bx);
     }
 }
