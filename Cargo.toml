@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 curry-macro = "0.1.0"
 dyn-clone = "1.0.16"
+pest = "2.7.5"
+pest_derive = "2.7.5"

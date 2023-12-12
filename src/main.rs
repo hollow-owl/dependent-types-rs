@@ -1,4 +1,7 @@
-use CoC::{Term, FnClone, Term::*, print, assert_infer};
+use CoC::{Term, Term::*};
+use pest::Parser;
+
+use crate::CoC::{TermParser, Rule};
 
 
 pub mod CoC;
@@ -9,23 +12,26 @@ fn appl(f: Term, args: Vec<Term>) -> Term {
 
 
 fn main() {
-    // let n_ty = Term::Pi(
-    //     Box::new(Term::Star),
-    //     Box::new(move |a:Term| {
-    //         let a = a.clone();
-    //         let a2 = a.clone();
-    //         Term::Pi(
-    //             Box::new(Term::Pi(
-    //                 Box::new(a.clone()),
-    //                 Box::new(move |_x| a.clone()),
-    //             )),
-    //             Box::new(move |_f| {
-    //                 let a = a2.clone();
-    //                 Term::Pi(Box::new(a.clone()), Box::new(move |_x| a.clone()))
-    //             }),
-    //         )
-    //     }),
-    // );
+    let n_ty = Term::pi(Star, |a: Term| {
+        let a2 = a.clone();
+        Term::pi(Term::pi(a.clone(), |_x| a), |_f| 
+            Term::pi(a2.clone(), |_x| a2))
+    });
+    dbg!(n_ty);
+
+    let input = "(Π *.(Π (Π 0.0).(Π 0.0)))";
+    dbg!(TermParser::parse(Rule::term, input));
+
+    // let curry2 = |f| Term::lam(|x| Term::lam(|y| f(x)(y)));
+    // // let curry3 = |f: impl Fn(Term) -> impl Fn(Term) -> impl Fn(Term) -> Term| Term::lam(|x| curry2(f(x)));
+    // // let curry4 = |f: impl Fn(Term) -> impl Fn(Term) -> impl Fn(Term) -> impl Fn(Term) -> Term| Term::lam(|x| curry3(f(x)));
+    // // let curry5 = |f: impl Fn(Term) -> impl Fn(Term) -> impl Fn(Term) -> impl Fn(Term) -> impl Fn(Term) -> Term| Term::lam(|x| curry4(f(x)));
+    // let a =|x: Term| |y: Term| y;
+    // curry2(a);
+    // dbg!(a)
+
+    // let zero = Term::Ann(curry3(|_a| |_f| |x| x), n_ty.clone());
+    // dbg!(zero)
 
     // let zero = Term::Ann(
     //     Box::new(

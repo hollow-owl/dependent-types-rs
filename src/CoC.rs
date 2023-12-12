@@ -1,23 +1,39 @@
 use core::fmt;
 use std::collections::VecDeque;
 
-use dyn_clone::DynClone;
+use pest_derive::Parser;
+use pest::{Parser, iterators::Pair};
 
 use crate::CoC::Term::*;
 
-pub trait FnClone: DynClone {
+
+pub trait FnClone {
     fn call(&self, t: Term) -> Term;
+    fn clone_box(&self) -> Box<dyn FnClone>;
 }
 
 impl<F> FnClone for F
-    where F: Fn(Term) -> Term + Clone 
+where
+    F: 'static + Clone + FnOnce(Term) -> Term,
 {
     fn call(&self, t: Term) -> Term {
-        self(t)
+        (self.clone())(t)
+    }
+
+    fn clone_box(&self) -> Box<dyn FnClone> {
+        Box::new(self.clone())
     }
 }
 
-dyn_clone::clone_trait_object!(FnClone);
+impl Clone for Box<dyn FnClone> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
+#[derive(Parser)]
+#[grammar = "grammar.pest"]
+pub struct TermParser;
 
 #[derive(Clone)]
 pub enum Term {
@@ -31,7 +47,6 @@ pub enum Term {
 }
 
 impl Term {
-    
     pub fn lam<F>(f: F) -> Self
     where F: 'static + FnClone {
         Lam(Box::new(f))
@@ -48,6 +63,22 @@ impl Term {
 
     pub fn ann(m: Term, a: Term) -> Self {
         Ann(Box::new(m), Box::new(a))
+    }
+
+    pub fn parse_term(pair: Pair<Rule>) -> Term {
+        match pair.as_rule() {
+            Rule::lambda => {
+                let mut inner_rules = pair.into_inner();
+                Term::lam(Box::new())
+            },
+            Rule::pi => todo!(),
+            Rule::application => todo!(),
+            Rule::ann => todo!(),
+            Rule::variable => todo!(),
+            Rule::star => todo!(),
+            Rule::space => todo!(),
+            Rule::digit => todo!(),
+        }
     }
 }
 
