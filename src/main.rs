@@ -1,4 +1,4 @@
-use CoC::{Term, Term::*};
+use CoC::{Term, Term::*, print};
 use pest::Parser;
 
 use crate::CoC::{TermParser, Rule};
@@ -19,8 +19,10 @@ fn main() {
     });
     dbg!(n_ty);
 
-    let input = "(Π *.(Π (Π 0.0).(Π 0.0)))";
-    dbg!(TermParser::parse(Rule::term, input));
+    // let input = "(Π *.(Π (Π 0.0).(Π 0.0)))";
+    // dbg!(TermParser::parse(Rule::term, input));
+    // dbg!(print(0, 
+    println!("{}", print(0,&Pi(Box::new(FreeVar(0)), Box::new(|_| Star))));
 
     // let curry2 = |f| Term::lam(|x| Term::lam(|y| f(x)(y)));
     // // let curry3 = |f: impl Fn(Term) -> impl Fn(Term) -> impl Fn(Term) -> Term| Term::lam(|x| curry2(f(x)));

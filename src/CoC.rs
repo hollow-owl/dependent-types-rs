@@ -67,17 +67,29 @@ impl Term {
 
     pub fn parse_term(pair: Pair<Rule>) -> Term {
         match pair.as_rule() {
-            Rule::lambda => {
-                let mut inner_rules = pair.into_inner();
-                Term::lam(Box::new())
-            },
+            Rule::lambda => todo!(),
             Rule::pi => todo!(),
-            Rule::application => todo!(),
-            Rule::ann => todo!(),
-            Rule::variable => todo!(),
-            Rule::star => todo!(),
-            Rule::space => todo!(),
-            Rule::digit => todo!(),
+            Rule::application => {
+                let mut inner_rules = pair.into_inner();
+                let m = Self::parse_term(inner_rules.next().unwrap());
+                let n = Self::parse_term(inner_rules.next().unwrap());
+                Self::appl(m,n)
+            },
+            Rule::ann => {
+                let mut pair = pair.into_inner();
+                let m = Self::parse_term(pair.next().unwrap());
+                let a = Self::parse_term(pair.next().unwrap());
+                Self::ann(m,a)
+            },
+            Rule::variable => {
+                let mut pair = pair.into_inner();
+                let x = pair.next().unwrap().as_str().parse().unwrap();
+                FreeVar(x)
+            },
+            Rule::star => Star,
+            Rule::bx => Bx,
+            Rule::term => Self::parse_term(pair.into_inner().next().unwrap()),
+            Rule::space | Rule::digit => unreachable!(),
         }
     }
 }

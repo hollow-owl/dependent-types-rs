@@ -1,12 +1,12 @@
 
-term = { lambda | pi | ann | application | variable | star | box }
+term = { lambda | pi | ann | application | variable | star | bx }
 lambda = { "(λ" ~ space ~ term ~ ")" }
 pi = { "(Π" ~ space ~ term ~ "." ~ space ~ term ~ ")"}
 application = { "(" ~ term ~ space ~ term ~ ")" }
 ann = { "(" ~ term ~ space ~ ":" ~ space ~ term ~ ")" }
 variable = { (digit)+ }
 star = { "*" }
-box = { "☐" }
+bx = { "☐" }
 
 space = { " " | "\t" | "" }
 digit = { ('0'..'9')+ }
