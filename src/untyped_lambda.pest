@@ -7,13 +7,9 @@
 // variable = { (digit)+ }
 // star = { "*" }
 // bx = { "☐" }
-term = { lambda | pi | application | variable | star | bx }
-lambda = { ("λ"|"^") ~ variable ~ ":" ~ term ~ "." ~ term }
-pi = { "Π" ~ variable ~ ":" ~ term ~ "." ~ term }
+term = { lambda | application | variable }
+lambda = { ("λ"|"^") ~ variable ~ "." ~ term }
 application = { "(" ~ term ~ space ~ term ~ ")" }
-star = { "*" }
-bx = { "☐" }
-
 variable = { ASCII_ALPHANUMERIC+ ~ "'"* }
 
 space = { " " | "\t" | "" }

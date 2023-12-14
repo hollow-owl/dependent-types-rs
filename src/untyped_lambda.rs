@@ -5,7 +5,7 @@ use Term::*;
 
 
 #[derive(Parser)]
-#[grammar = "grammar.pest"]
+#[grammar = "untyped_lambda.pest"]
 struct TermParser;
 
 #[derive(Debug, Clone, Eq)]

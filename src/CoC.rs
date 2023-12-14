@@ -10,18 +10,19 @@ struct TermParser;
 
 #[derive(Debug, Clone, Eq)]
 pub enum Term { 
-    S(String),
+    Star,
+    Bx,
     V(String), // constants and variables of all varieties: term variables, type variables, kinds variables, and beyond.
-    Lam(String, Box<Term>), // abstractions, again for all sorts: terms, types, and so on, which can map to terms, types, and so on
-    // Pi(String, Box<Term>, Box<Term>),
+    Lam(String, Box<Term>, Box<Term>), // abstractions, again for all sorts: terms, types, and so on, which can map to terms, types, and so on
+    Pi(String, Box<Term>, Box<Term>),
     App(Box<Term>, Box<Term>), // applications of all sorts
     // Ann(Box<Term>, Box<Term>), // type annotation
 }
 
 impl Term {
     pub fn v(s: &str) -> Term { Self::V(s.to_string()) }
-    pub fn lam(s: &str, ks: Term) -> Term { Self::Lam(s.to_string(), Box::new(ks)) }
-    // pub fn pi(s: String, ks: Term, kt: Term) -> Term { Self::Pi(s, Box::new(ks), Box::new(kt)) }
+    pub fn lam(s: &str, a: Term, m: Term) -> Term { Self::Lam(s.to_string(), Box::new(a), Box::new(m)) }
+    pub fn pi(s: &str, a: Term, m: Term) -> Term { Self::Pi(s.to_string(), Box::new(a), Box::new(m)) }
     pub fn app(a: Term, b: Term) -> Term { Self::App(Box::new(a), Box::new(b)) }
     // pub fn ann(a: Term, b: Term) -> Term { Self::Ann(Box::new(a), Box::new(b)) }
 
@@ -36,8 +37,16 @@ impl Term {
             Rule::lambda => {
                 let mut pair = pair.into_inner();
                 let v = pair.next().unwrap().as_str();
-                let ks = Self::parse_term(pair.next().unwrap())?;
-                Ok(Self::lam(v,ks))
+                let a = Self::parse_term(pair.next().unwrap())?;
+                let m = Self::parse_term(pair.next().unwrap())?;
+                Ok(Self::lam(v,a,m))
+            },
+            Rule::pi => {
+                let mut pair = pair.into_inner();
+                let v = pair.next().unwrap().as_str();
+                let a = Self::parse_term(pair.next().unwrap())?;
+                let m = Self::parse_term(pair.next().unwrap())?;
+                Ok(Self::pi(v,a,m))
             },
             Rule::application => {
                 let mut pair = pair.into_inner();
@@ -48,23 +57,27 @@ impl Term {
             Rule::variable => {
                 Ok(Self::v(pair.as_str()))
             },
+            Rule::star => Ok(Self::Star),
+            Rule::bx => Ok(Self::Bx),
             Rule::space | Rule::digit => unreachable!(),
         }
     }
 
     pub fn free_vars(&self) -> Vec<String> {
         match self {
-            S(_) => vec![],
+            Star | Bx => vec![],
             V(s) => vec![ s.clone() ],
-            Lam(s, f) => f.free_vars().into_iter().filter(|x| x != s).collect(),
+            Lam(s, a,m) => [a.free_vars(),m.free_vars().into_iter().filter(|x| x != s).collect()].concat(),
+            Pi(s, a,m) => [a.free_vars(),m.free_vars().into_iter().filter(|x| x != s).collect()].concat(),
             App(m, n) => [m.free_vars(), n.free_vars()].concat(),
         }
     }
 
     pub fn binders(&self) -> Vec<String> {
         match self {
-            V(_) | S(_) => vec![],
-            Lam(s, f) => [vec![s.clone()],f.binders()].concat(),
+            V(_) | Star | Bx => vec![],
+            Lam(s, a, m) => [vec![s.clone()],a.binders(),m.binders()].concat(),
+            Pi(s, a, m) => [vec![s.clone()],a.binders(),m.binders()].concat(),
             App(m, n) => [m.binders(),n.binders()].concat(),
         }
     }
@@ -75,15 +88,22 @@ impl Term {
 
     pub fn subst(self, x: &str, m: &Term) -> Term{
         match self {
-            term @ S(_) => term,
+            Star => Star,
+            Bx => Bx,
             V(y) if x == y => m.clone(),
             V(y) => V(y),
-            Lam(y, a) if x == y => Self::lam(&y,*a),
-            Lam(y, a) if m.free_vars().contains(&y) => {
+            Lam(y, a,n) if x == y => Self::lam(&y,*a,*n),
+            Lam(y, a,n) if m.free_vars().contains(&y) => {
                 let banlist = m.free_vars();
-                Self::lam(&freshen(&banlist,&y),a.subst(x, &V(y)))
+                Self::lam(&freshen(&banlist,&y),a.subst(x, &Self::v(&y)), n.subst(x, &Self::v(&y)))
             },
-            Lam(y,a) => Self::lam(&y, a.subst(x, m)),
+            Lam(y,a,n) => Self::lam(&y, a.subst(x, m), n.subst(x, m)),
+            Pi(y, a,n) if x == y => Self::lam(&y,*a,*n),
+            Pi(y, a,n) if m.free_vars().contains(&y) => {
+                let banlist = m.free_vars();
+                Self::lam(&freshen(&banlist,&y),a.subst(x, &Self::v(&y)), n.subst(x, &Self::v(&y)))
+            },
+            Pi(y,a,n) => Self::lam(&y, a.subst(x, m), n.subst(x, m)),
             App(m_, n) => Self::app(m_.subst(x, m),n.subst(x, m)),
         }
     }
@@ -91,12 +111,14 @@ impl Term {
     pub fn eval(&self) -> Term {
         match self {
            App(m,n) => match (m.eval(), n.eval()) {
-                (Lam(x,m), n) => m.subst(&x, &n).eval(),
+                (Lam(x,a,m), n) => m.subst(&x, &n).eval(),
                 (m,n) => Self::app(m,n),
            },
-           Lam(x,f) => Self::lam(x,f.eval()),
+           Lam(x,a,m) => Self::lam(x,a.eval(),m.eval()),
+           Pi(x,a,m) => Self::lam(x,a.eval(),m.eval()),
            V(s) => Self::v(s),
-           S(s) => Self::S(s.clone()),
+           Star => Star,
+           Bx => Bx,
         }
     }
 }
@@ -105,17 +127,17 @@ impl PartialEq for Term {
     // alpha equality
     fn eq(&self, other: &Self) -> bool {
         match (self,other) {
-            (S(x), S(x_)) => x == x_,
             (V(x), V(x_)) => x == x_,
-            (Lam(x,a),Lam(x_,a_)) if x == x_ => a == a_,
-            (Lam(x,a),Lam(x_,a_)) => {
-                let mut banlist = a.all_vars();
-                banlist.append(&mut a_.all_vars());
+            (Lam(x,a,m),Lam(x_,a_,m_)) if x == x_ => a == a_ && m == m_,
+            (Lam(x,a,m),Lam(x_,a_,m_)) => {
+                let mut banlist = m.all_vars();
+                banlist.append(&mut m_.all_vars());
                 let banlist = vec![];
                 let fresh_x = freshen(&banlist, x);
-                Self::lam(&fresh_x, a.clone().subst(x, &Self::v(&fresh_x))) == Self::lam(&fresh_x,a_.clone().subst(x_, &Self::v(&fresh_x)))
+                Self::lam(&fresh_x, *a.clone(), m.clone().subst(x, &Self::v(&fresh_x))) == Self::lam(&fresh_x,*a_.clone(), m_.clone().subst(x_, &Self::v(&fresh_x)))
             },
             (App(m,n),App(m_,n_)) => m == m_ && n == n_,
+            (Star,Star) | (Bx,Bx) => true,
             (_,_) => false
         }
     }
@@ -139,8 +161,8 @@ mod tests {
 
     #[test]
     fn parsing() {
-        assert_eq!(Term::parse("^x.x").unwrap(), Term::parse("λx.x").unwrap());
-        assert_eq!(Term::lam("x", Term::lam("y", Term::v("x"))), Term::parse("^x.^y.y").unwrap());
+        assert_eq!(Term::parse("^x:*.x").unwrap(), Term::parse("λx:*.x").unwrap());
+        assert_eq!(Term::lam("x", Star, Term::lam("y", Star, Term::v("y"))), Term::parse("^x:*.^y:*.y").unwrap());
     }
 
     #[test] 
@@ -156,9 +178,9 @@ mod tests {
             ("x","z", "(x y)", "(z y)"),
             ("y","z", "(x y)", "(x z)"),
             ("z","l", "(x y)", "(x y)"),
-            ("x", "z", "^x.x", "^x.x"),
-            ("y", "z", "^x.y", "^x.z"),
-            // ("y", "x", "^x.y", "^x'.x"),
+            ("x", "z", "^x:*.x", "^x:*.x"),
+            ("y", "z", "^x:*.y", "^x:*.z"),
+            ("y", "x", "^x:*.y", "^x':*.x"),
         ];
         for (x,m,term,out) in x {
             assert_eq!(p(term).subst(x, &p(m)), p(out));
@@ -167,22 +189,22 @@ mod tests {
 
     #[test]
     fn alpha_eq() {
-        assert!(p("^x.x") == p("^y.y"));
-        assert!(p("^x.^y.x") == p("^y.^x.y"));
-        assert!(p("^x.^y.x") == p("^y.^x.x"));
+        assert!(p("^x:*.x") == p("^y:*.y"));
+        assert!(p("^x:*.^y:*.x") == p("^y:*.^x:*.y"));
+        assert!(p("^x:*.^y:*.x") == p("^y:*.^x:*.x"));
     }
 
     #[test]
     fn eval() {
         assert_eq!(p("x").eval(), p("x"));
         assert_eq!(p("(x y)").eval(), p("(x y)"));
-        assert_eq!(p("(^x.x y)").eval(), p("y"));
-        assert_eq!(p("((^x.^x.x z) y)").eval(), p("y"));
+        assert_eq!(p("(^x:*.x y)").eval(), p("y"));
+        assert_eq!(p("((^x:*.^x:*.x z) y)").eval(), p("y"));
 
-        assert_eq!(p("(x (^x.x y))").eval(), p("(x y)"));
-        assert_eq!(p("(^x.x (^x.x z))").eval(), p("z"));
-        assert_eq!(p("(^x.(^y.y x) z)").eval(), p("z"));
-        assert_eq!(p("^x.x").eval(), p("^x.x"));
-        assert_eq!(p("^x.(^x.x z)").eval(), p("^x.z"));
+        assert_eq!(p("(x (^x:*.x y))").eval(), p("(x y)"));
+        assert_eq!(p("(^x:*.x (^x:*.x z))").eval(), p("z"));
+        assert_eq!(p("(^x:*.(^y:*.y x) z)").eval(), p("z"));
+        assert_eq!(p("^x:*.x").eval(), p("^x:*.x"));
+        assert_eq!(p("^x:*.(^x:*.x z)").eval(), p("^x:*.z"));
     }
 }
