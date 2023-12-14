@@ -28,7 +28,6 @@ impl Term {
 
     pub fn parse(input: &str) -> Result<Term, pest::error::Error<Rule>> {
         let mut parsed = TermParser::parse(Rule::term, input)?;
-        dbg!(&parsed);
         Term::parse_term(parsed.next().unwrap())
     }
 
@@ -64,36 +63,47 @@ impl Term {
         }
     }
 
-    fn eval(self, ctx: &Vec<Term>) -> Term { 
-        println!("{}",&self);
+    fn eval(self) -> Term { 
         match self {
-            Lam(f) => Self::lam(f.eval(ctx)),
-            Pi(a, f) => Self::pi(a.eval(ctx), f.eval(ctx)),
-            Appl(m, n) => match (m.eval(ctx), n.eval(ctx)) {
-                (Lam(f), n) => f.eval(ctx),
+            Lam(f) => Self::lam(f.eval().shift(1)),
+            Pi(a, f) => Self::pi(a.eval(), f.eval()),
+            Appl(m, n) => match (m.eval(), n.eval()) {
+                (Lam(f), n) => {
+                    f.subst(&n).shift(-1)
+                },
                 (m, n) => Self::appl(m, n),
             },
-            Ann(m, _a) => m.eval(ctx),
+            Ann(m, _a) => m.eval(),
             x => x,
         }
     }
 
-    // fn subsitute(self, index: usize, replacement: &Term) -> Term {
-    //     match self {
-    //         Lam(f) => Self::lam(f.subsitute(index+1, replacement)),
-    //         Pi(a, f) => Self::pi(a.subsitute(index, replacement), f.subsitute(index, replacement)), // ????
-    //         Appl(m, n) => Self::appl(m.subsitute(index, replacement),n.subsitute(index, replacement)),
-    //         Ann(m, a) => Self::ann(m.subsitute(index, replacement),a.subsitute(index, replacement)),
-    //         FreeVar(x) => if x == index {
-    //             replacement.clone()
-    //         } else if x > index {
-    //             FreeVar(x-1)
-    //         } else {
-    //             FreeVar(x)
-    //         },
-    //         x => x
-    //     }
-    // }
+    fn shift(self, shift: isize) -> Term { 
+        match self {
+            Lam(f) => Self::lam(f.shift(shift)),
+            Pi(a, m) => Self::pi(a.shift(shift), m.shift(shift)),
+            Appl(m, n) => Self::appl(m.shift(shift), n.shift(shift)),
+            Ann(m, a) => Self::ann(m.shift(shift), a.shift(shift)),
+            FreeVar(x) => FreeVar((x as isize + shift) as usize),
+            x => x,
+        }
+     }
+    fn subst(self, t: &Term) -> Term { 
+        match self {
+            Lam(f) => Self::lam(f.subst(t)),
+            Pi(a, m) => Self::pi(a.subst(t), m.subst(t)),
+            Appl(m, n) => Self::appl(m.subst(t), n.subst(t)),
+            Ann(m, a) => Self::ann(m.subst(t), a.subst(t)),
+            FreeVar(x) => {
+                if x == 0 {
+                    t.clone()
+                } else {
+                    FreeVar(x-1)
+                }
+            },
+            x => x,
+        }
+     }
 
     fn infer_ty(self, ctx: &mut Vec<Term>) { unimplemented!() }
     fn infer_sort(self, ctx: &mut Vec<Term>) { unimplemented!() }
@@ -122,6 +132,7 @@ mod tests {
 
     #[test]
     fn eval_lambda() {
+        assert_eq!("0", format!("{}", Term::parse("((λ 1) 1)").unwrap().eval()));
         // (λ λ 4 2 (λ 1 3)) (λ 5 1)
         // let a = "(λ ((λ ((4 2) (λ (1 3)))) (λ (5 1))))";
         let a = "((λ (λ ((4 2) (λ (1 3))))) (λ (5 1)))";
@@ -130,8 +141,7 @@ mod tests {
 
         // λ 3 (λ 6 1) (λ 1 (λ 7 1))
         let b = "(λ ((3 (λ (6 1))) (λ (1 (λ (7 1))))))";
-        println!("{}", Term::parse(a).unwrap().eval(&vec![]));
-        // println!("{}", Term::parse(b).unwrap());
+        println!("{}", Term::parse(a).unwrap().eval());
     }
 
     #[test]
