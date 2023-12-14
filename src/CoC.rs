@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use pest::Parser;
 use pest_derive::Parser;
 
@@ -115,10 +117,58 @@ impl Term {
                 (m,n) => Self::app(m,n),
            },
            Lam(x,a,m) => Self::lam(x,a.eval(),m.eval()),
-           Pi(x,a,m) => Self::lam(x,a.eval(),m.eval()),
+           Pi(x,a,m) => Self::pi(x,a.eval(),m.eval()),
            V(s) => Self::v(s),
            Star => Star,
            Bx => Bx,
+        }
+    }
+
+    pub fn infer_type(&self, ctx: &HashMap<&str, Term>) -> Term {
+        match self {
+            Star => Bx,
+            Bx => panic!("☐ has no type!"),
+            V(x) => ctx.get(x.as_str()).and_then(|x| Some(x.eval())).unwrap(),
+            Lam(x, a, m) => {
+                let mut new_ctx = ctx.clone();
+                new_ctx.insert(&x, *a.clone());
+                let m_ty = m.infer_type(&new_ctx);
+                let lam_ty = Self::pi(&x,*a.clone(),m_ty);
+                let _ = &lam_ty.infer_type(ctx);
+                lam_ty.eval()
+            },
+            Pi(x, a, m) => {
+                let _s1 = a.infer_sort(ctx);
+                let mut new_ctx = ctx.clone();
+                new_ctx.insert(&x, *a.clone());
+                let s2 = m.infer_type(&new_ctx);
+                s2
+            },
+            App(m,n) => Self::infer_app(ctx, &m,&n),
+        }
+    }
+
+    pub fn infer_sort(&self, ctx: &HashMap<&str, Term>) -> Term {
+        match self.infer_type(ctx) {
+            Star => Star,
+            Bx => Bx,
+            a => panic!("Expected sort, got {a:?}: {self:?}")
+        }
+    }
+
+    pub fn infer_app(ctx: &HashMap<&str, Term>, m: &Term, n: &Term) -> Term {
+        match m.infer_type(ctx) {
+            Pi(x,a,m) => {
+                let n_ty = n.infer_type(ctx);
+                if *a == n_ty {
+                    m.subst(&x, n).eval()
+                } else {
+                    panic!("Expected type {a:?}, got {n_ty:?}: {n:?}")
+                }
+            },
+            m_ty => {
+                panic!("Application of argument {n:?} to a non-lambda {m:?} of type {m_ty:?}")
+            }
         }
     }
 }
@@ -130,6 +180,14 @@ impl PartialEq for Term {
             (V(x), V(x_)) => x == x_,
             (Lam(x,a,m),Lam(x_,a_,m_)) if x == x_ => a == a_ && m == m_,
             (Lam(x,a,m),Lam(x_,a_,m_)) => {
+                let mut banlist = m.all_vars();
+                banlist.append(&mut m_.all_vars());
+                let banlist = vec![];
+                let fresh_x = freshen(&banlist, x);
+                Self::lam(&fresh_x, *a.clone(), m.clone().subst(x, &Self::v(&fresh_x))) == Self::lam(&fresh_x,*a_.clone(), m_.clone().subst(x_, &Self::v(&fresh_x)))
+            },
+            (Pi(x,a,m),Pi(x_,a_,m_)) if x == x_ => a == a_ && m == m_,
+            (Pi(x,a,m),Pi(x_,a_,m_)) => {
                 let mut banlist = m.all_vars();
                 banlist.append(&mut m_.all_vars());
                 let banlist = vec![];
@@ -206,5 +264,51 @@ mod tests {
         assert_eq!(p("(^x:*.(^y:*.y x) z)").eval(), p("z"));
         assert_eq!(p("^x:*.x").eval(), p("^x:*.x"));
         assert_eq!(p("^x:*.(^x:*.x z)").eval(), p("^x:*.z"));
+
+        assert_eq!(p("(^x:a.x y)").eval(),p("y"));
+    }
+
+    #[test]
+    fn type_inference() {
+        let x = vec![
+            // super type
+            (vec![], Star, Bx),
+            (vec![("x", Star), ("y", p("x"))], Star, Bx),
+            // vars
+            (vec![("x", Star)], p("x"), Star),
+            (vec![("x", Star), ("y", p("x")), ("z", p("x"))], p("y"), p("x")),
+            (vec![("x", Star), ("y", p("x"))], p("y"), p("x")),
+            // application
+            (vec![("a", Star), ("y", p("a"))], p("(^x:a.x y)"), p("a")),
+            (vec![("y", Star)], p("(^x:*.x y)"), Star),
+            // term dep term
+            (vec![("a", Star)], p("^x:a.x"), p("Πx:a.a")),
+            // term dep type
+            (vec![("a", Star), ("y", p("a"))], p("^x:*.y"), p("Πx:*.a")),
+            // type dep type
+            (vec![], p("^x:*.x"), p("Πx:*.*")),
+            // type dep term
+            (vec![("a", Star)], p("^x:a.a"), p("Πx:a.*")),
+            (vec![("a", Star)], p("^x:a.Πy:a.a"), p("Πx:a.*")),
+            // pi types
+            (vec![("a", Star)], p("Πx:a.a"), p("*")),
+            (vec![("a", Star)], p("Πx:a.Πx:a.a"), Star),
+            (vec![("a", Bx)], p("Πx:a.a"), Bx),
+            (vec![("a", Bx)], p("Πx:a.Πx:a.a"), Bx),
+            // norm subexpr
+            (vec![("a", Star), ("b", Star), ("y", p("a")), ("z", p("b"))], p("^x:(^x:*.x a).(^x:b.x z)"), p("Πx:a.b"))
+
+        ];
+        for (ctx,term, ty) in x {
+            assert_eq!(term.infer_type(&ctx.into_iter().collect()), ty);
+        }
+    }
+
+    #[test]
+    fn useage() {
+        let t = p("^a:*.^x:a.^y:a.x");
+        let f = p("^a:*.^x:a.^y:a.y");
+        let bool_ty = p("Πa:*.Πx:a.Πy:a.a");
+        assert!(t.infer_type(&HashMap::new()) == bool_ty);
     }
 }
