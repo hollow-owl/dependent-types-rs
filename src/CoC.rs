@@ -10,7 +10,7 @@ struct TermParser;
 
 #[derive(Debug, Clone, Eq)]
 pub enum Term { 
-    // S(String),
+    S(String),
     V(String), // constants and variables of all varieties: term variables, type variables, kinds variables, and beyond.
     Lam(String, Box<Term>), // abstractions, again for all sorts: terms, types, and so on, which can map to terms, types, and so on
     // Pi(String, Box<Term>, Box<Term>),
@@ -54,6 +54,7 @@ impl Term {
 
     pub fn free_vars(&self) -> Vec<String> {
         match self {
+            S(_) => vec![],
             V(s) => vec![ s.clone() ],
             Lam(s, f) => f.free_vars().into_iter().filter(|x| x != s).collect(),
             App(m, n) => [m.free_vars(), n.free_vars()].concat(),
@@ -62,7 +63,7 @@ impl Term {
 
     pub fn binders(&self) -> Vec<String> {
         match self {
-            V(_) => vec![],
+            V(_) | S(_) => vec![],
             Lam(s, f) => [vec![s.clone()],f.binders()].concat(),
             App(m, n) => [m.binders(),n.binders()].concat(),
         }
@@ -74,6 +75,7 @@ impl Term {
 
     pub fn subst(self, x: &str, m: &Term) -> Term{
         match self {
+            term @ S(_) => term,
             V(y) if x == y => m.clone(),
             V(y) => V(y),
             Lam(y, a) if x == y => Self::lam(&y,*a),
@@ -94,6 +96,7 @@ impl Term {
            },
            Lam(x,f) => Self::lam(x,f.eval()),
            V(s) => Self::v(s),
+           S(s) => Self::S(s.clone()),
         }
     }
 }
@@ -102,6 +105,7 @@ impl PartialEq for Term {
     // alpha equality
     fn eq(&self, other: &Self) -> bool {
         match (self,other) {
+            (S(x), S(x_)) => x == x_,
             (V(x), V(x_)) => x == x_,
             (Lam(x,a),Lam(x_,a_)) if x == x_ => a == a_,
             (Lam(x,a),Lam(x_,a_)) => {
@@ -163,9 +167,9 @@ mod tests {
 
     #[test]
     fn alpha_eq() {
-        assert!(p("^x.x").alpha_eq(&p("^y.y")));
-        assert!(p("^x.^y.x").alpha_eq(&p("^y.^x.y")));
-        assert!(p("^x.^y.x").alpha_eq(&p("^y.^x.x")));
+        assert!(p("^x.x") == p("^y.y"));
+        assert!(p("^x.^y.x") == p("^y.^x.y"));
+        assert!(p("^x.^y.x") == p("^y.^x.x"));
     }
 
     #[test]
